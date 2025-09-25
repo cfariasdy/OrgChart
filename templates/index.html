@@ -1,0 +1,325 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Org Chart</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        /* --- START: Revised & Robust Layout CSS --- */
+
+        /* --- Base Styles for Nodes and Cards --- */
+        .org-chart-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        /* The card holds the employee info */
+        .org-chart-card {
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+            padding: 1rem;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            min-width: 180px;
+            z-index: 10;
+        }
+        .org-chart-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        
+        /* NEW: Wrapper for the card to anchor connector lines reliably */
+        .node-content-wrapper {
+            position: relative;
+            display: inline-block; /* Ensures wrapper fits card size */
+        }
+
+        /* Container for children */
+        .org-chart-children {
+            display: flex;
+            position: relative;
+            padding-top: 20px;
+        }
+        
+        /* Vertical line coming DOWN from a manager to their children */
+        .org-chart-children::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 20px;
+            background-color: #cbd5e1;
+        }
+
+        /* --- HORIZONTAL LAYOUT (First Level) --- */
+        .layout-horizontal {
+            justify-content: center;
+            gap: 20px;
+        }
+        /* Horizontal line connecting all first-level children */
+        .layout-horizontal::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 20px;
+            height: 2px;
+            background-color: #cbd5e1;
+            /* Calculate width based on children count */
+            width: calc(100% - 200px); /* 180px card width + 20px gap */
+            transform: translateX(-50%);
+        }
+        .layout-horizontal > .org-chart-node::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 20px;
+            background-color: #cbd5e1;
+        }
+
+        /* --- VERTICAL LAYOUT (Sub-Levels) --- */
+        .layout-vertical {
+            flex-direction: column;
+            align-items: flex-start;
+            padding-left: 20px;
+        }
+        /* Vertical line connecting all sub-level children */
+        .layout-vertical::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background-color: #cbd5e1;
+            transform: none;
+        }
+        .layout-vertical > .org-chart-node {
+            padding-left: 30px; /* Space between vertical line and card */
+            padding-bottom: 20px;
+        }
+        .layout-vertical > .org-chart-node:last-child {
+            padding-bottom: 0;
+        }
+        
+        /* Horizontal line connecting a sub-level child to the main vertical line */
+        /* THIS IS THE KEY FIX FOR VERTICAL ALIGNMENT */
+        .layout-vertical .node-content-wrapper::before {
+            content: '';
+            position: absolute;
+            left: -30px; /* Connects back to the vertical line */
+            top: 50%; /* Position at the vertical midpoint */
+            transform: translateY(-50%); /* Ensure perfect centering */
+            width: 30px;
+            height: 2px;
+            background-color: #cbd5e1;
+        }
+        
+        /* --- FIX for CUT-OFF CHART --- */
+        /* Ensures the chart container calculates its full width for scrolling */
+        #chart-container > .org-chart-node {
+             display: inline-flex;
+             flex-direction: column;
+             align-items: center;
+        }
+        /* --- END: Revised & Robust Layout CSS --- */
+
+        .hidden { display: none; }
+        #message-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 24px; border-radius: 12px; box-shadow: 0 10px 15px rgba(0,0,0,0.2); z-index: 1000; max-width: 320px; width: 90%; text-align: left; }
+        #message-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4); z-index: 999; }
+        .department-tab { padding: 0.75rem 1.5rem; font-semibold; color: #4a5568; border-bottom: 3px solid transparent; transition: all 0.2s; cursor: pointer; }
+        .department-tab:hover { color: #2d3748; }
+        .department-tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+        @media print { body { background-color: #fff; } .no-print { display: none !important; } .org-chart-card { box-shadow: none; border: 1px solid #ccc; } .overflow-x-auto { overflow-x: visible; } }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans p-8">
+    <div class="max-w-7xl mx-auto py-8">
+        <h1 class="text-4xl font-bold text-center mb-2 text-gray-800">Company Org Chart</h1>
+        <p class="text-center text-gray-600 mb-8 no-print">Select a department to view its structure.</p>
+
+        <div id="department-tabs" class="flex justify-center flex-wrap gap-2 mb-8 no-print border-b border-gray-300">
+            </div>
+        <div class="flex justify-center mb-8 no-print">
+             <button id="print-btn" class="px-6 py-3 bg-gray-400 text-white rounded-full font-semibold shadow-md hover:bg-gray-500 transition-colors">Print Current View</button>
+        </div>
+
+        <div id="loading-message" class="text-center text-gray-500 text-lg">Loading org chart...</div>
+        <div id="chart-container" class="overflow-x-auto p-4">
+            </div>
+    </div>
+
+    <div id="message-overlay" class="hidden no-print"></div>
+    <div id="message-box" class="hidden no-print">
+        <h3 id="message-name" class="font-bold text-xl mb-2 text-gray-900"></h3>
+        <p id="message-title" class="text-gray-700 mb-1"></p>
+        <p id="message-status" class="text-gray-700 mb-1"></p>
+        <p id="message-location" class="text-gray-700 mb-4"></p>
+        <button id="close-message-btn" class="w-full px-4 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors">Close</button>
+    </div>
+
+    <script type="text/javascript">
+        let departmentData = null;
+
+        function showMessageBox(data) {
+            document.getElementById('message-name').textContent = `${data.firstName} ${data.lastName}`;
+            document.getElementById('message-title').textContent = `Title: ${data.title}`;
+            document.getElementById('message-status').textContent = `Status: ${data.employmentStatus}`;
+            document.getElementById('message-location').textContent = `Location: ${data.location}`;
+            document.getElementById('message-box').classList.remove('hidden');
+            document.getElementById('message-overlay').classList.remove('hidden');
+        }
+
+        function hideMessageBox() {
+            document.getElementById('message-box').classList.add('hidden');
+            document.getElementById('message-overlay').classList.add('hidden');
+        }
+
+        function printChart() {
+            const chartContainer = document.getElementById('chart-container');
+            const chart = chartContainer.querySelector('.org-chart-node');
+
+            if (!chart) {
+                console.error("Chart not found for printing.");
+                return;
+            }
+
+            const scale = Math.min(1, (chartContainer.clientWidth / chart.scrollWidth) * 0.98);
+
+            if (scale < 1) {
+                chart.style.transformOrigin = 'top left';
+                chart.style.transform = `scale(${scale})`;
+            }
+
+            window.onafterprint = () => {
+                chart.style.transformOrigin = '';
+                chart.style.transform = '';
+                window.onafterprint = null;
+            };
+
+            window.print();
+        }
+
+        function createOrgChart(data, parentElement, depth = 0) {
+            if (!data) return;
+
+            const nodeContainer = document.createElement('div');
+            nodeContainer.className = 'org-chart-node';
+
+            // --- JAVASCRIPT CHANGE ---
+            // This new wrapper is the key to making the CSS connector lines robust.
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = 'node-content-wrapper';
+
+            const card = document.createElement('div');
+            card.className = 'org-chart-card';
+            if (data.id) {
+                card.addEventListener('click', () => showMessageBox(data));
+            }
+
+            const fullName = document.createElement('p');
+            fullName.className = 'font-semibold text-gray-900 text-lg mb-1';
+            fullName.textContent = `${data.firstName} ${data.lastName}`;
+            
+            const title = document.createElement('p');
+            title.className = 'text-sm text-gray-500 mb-1';
+            title.textContent = data.title;
+            
+            card.appendChild(fullName);
+            card.appendChild(title);
+            contentWrapper.appendChild(card); // Card goes into the wrapper
+            nodeContainer.appendChild(contentWrapper); // Wrapper goes into the node
+
+            if (data.children && data.children.length > 0) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'org-chart-children';
+                
+                if (depth === 0) {
+                    childrenContainer.classList.add('layout-horizontal');
+                } else {
+                    childrenContainer.classList.add('layout-vertical');
+                }
+
+                data.children.forEach(child => {
+                    createOrgChart(child, childrenContainer, depth + 1);
+                });
+
+                nodeContainer.appendChild(childrenContainer);
+            }
+            parentElement.appendChild(nodeContainer);
+        }
+
+        function renderDepartmentView(departmentName) {
+            const chartContainer = document.getElementById('chart-container');
+            const tabsContainer = document.getElementById('department-tabs');
+            
+            tabsContainer.querySelectorAll('.department-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.department === departmentName);
+            });
+            
+            chartContainer.innerHTML = '';
+            const dataForDepartment = departmentData[departmentName];
+            if (dataForDepartment) {
+                createOrgChart(dataForDepartment, chartContainer);
+            } else {
+                chartContainer.textContent = `Department "${departmentName}" not found.`;
+            }
+        }
+
+        function setupDepartmentTabs() {
+            const tabsContainer = document.getElementById('department-tabs');
+            const loadingMessage = document.getElementById('loading-message');
+            const chartContainer = document.getElementById('chart-container');
+            
+            loadingMessage.classList.add('hidden');
+            chartContainer.classList.remove('hidden');
+
+            const departments = Object.keys(departmentData).sort();
+            if (departments.length === 0) {
+                chartContainer.textContent = 'No department data found.';
+                return;
+            }
+
+            departments.forEach(name => {
+                const button = document.createElement('button');
+                button.textContent = name;
+                button.className = 'department-tab';
+                button.dataset.department = name;
+                button.addEventListener('click', () => renderDepartmentView(name));
+                tabsContainer.appendChild(button);
+            });
+
+            renderDepartmentView(departments[0]);
+        }
+        
+        async function fetchOrgData() {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/org-data');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                departmentData = await response.json();
+                setupDepartmentTabs();
+            } catch (error) {
+                console.error("Error fetching or processing data:", error);
+                document.getElementById('loading-message').textContent = `Error: ${error.message}. Please ensure the server is running and the CSV is correct.`;
+            }
+        }
+
+        window.onload = function() {
+            document.getElementById('print-btn').addEventListener('click', printChart);
+            document.getElementById('close-message-btn').addEventListener('click', hideMessageBox);
+            document.getElementById('message-overlay').addEventListener('click', hideMessageBox);
+            fetchOrgData();
+        };
+    </script>
+</body>
+</html>
