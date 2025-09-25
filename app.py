@@ -12,7 +12,7 @@ import os
 template_dir = os.path.join(os.path.abspath("."), 'templates')
 app = Flask(__name__, template_folder=template_dir)
 # IMPORTANT: Change this to a random string for production
-app.config['SECRET_KEY'] = 'a_very_secret_and_unguessable_key_12345'
+app.config['SECRET_KEY'] = 'KayCow__EICSKeys__22022022__ReNNYY'
 CORS(app)
 bcrypt = Bcrypt(app)
 
